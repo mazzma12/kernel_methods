@@ -3,6 +3,18 @@ import pandas as pd
 
 import matplotlib.pyplot as plt
 
+def rgb2gray(rgb, reshape = True):
+    # if reshape is true, array is reshape in 32.32 pixels
+    n = rgb.shape[0]
+    r = rgb[:,:1024]
+    g = rgb[:,1024:2048]
+    b = rgb[:,2048:]
+    gray = 0.299*r + 0.587*g + 0.114*b
+    # from matlab 0.2989 * R + 0.5870 * G + 0.1140 * B
+    if reshape is True:
+        gray = gray.reshape(n, 32,32)
+    return gray
+    
 scharr_x = np.array([-3, 0, 3, -10, 0, 10, -3, 0, 3])
 scharr_y = np.array([-3, -10, -3, 0, 0, 0, 3, 10, 3])
 
@@ -18,31 +30,16 @@ def scharr_gradient(image):
     return np.array([convolution(image[indexes(i, j)]) for i in range(1, sz - 1) for j in range(1, sz - 1)])
 
 def scharr_gradients(X):
-    return X.apply(scharr_gradient, axis = 1)
+    X_gray = rgb2gray(X, reshape = False)
+    return np.apply_along_axis(scharr_gradient, axis = 1, arr = X_gray)
 
-def rgb2gray(rgb, reshape = True):
-    r = rgb[:1024].reshape(-1,1)
-    g = rgb[1024:2048].reshape(-1,1)
-    b = rgb[2048:].reshape(-1,1)
-    colors = np.c_[r, g, b]
-    gray = np.dot(colors, [0.299, 0.587, 0.114])
-    # from matlab 0.2989 * R + 0.5870 * G + 0.1140 * B
-    if reshape is True:
-        gray = gray.reshape(32,32)
-    return gray
-    #return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
-
-def plot(X, gray=True, lim=4):
-    # lim : set a limit number not to crash
-    n, p = X.shape
+def plot(X, lim=4):
+    n = X.shape[0]
     for kk in range(n):
         if kk>lim:
             break
-        x = X[kk]
-        im = rgb2gray(x)
-        plt.imshow(im, cmap='gray')
+        plt.imshow(X[kk], cmap='gray')
         plt.show()
-
 
 def shift(X, direction):
     n, p = X.shape
