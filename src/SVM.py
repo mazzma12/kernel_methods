@@ -124,7 +124,6 @@ class SVM:
             for idx, mask in enumerate(self.masks_samples_):
                 alpha = self.alphas_[idx]
                 # omega = alpha*self.y_copies_[idx] not useful
-                print(omega)
                 estimators_preds.append(np.dot(self.K_test_[:, mask], alpha)) # By the representer theorem
             
             # Converting the result and taking the sign for prediction
@@ -207,7 +206,6 @@ class SVM:
         # Compute the kernel gram matrix for the TEST set
             
         if self.kernel == 'rbf':
-            print(X_test.shape, self.X_train_.shape)
             pairwise_dists = cdist(X_test, self.X_train_)
             K = scipy.exp(-self.gamma*pairwise_dists ** 2)
         
@@ -302,3 +300,54 @@ def OVO_estimators_masks():
         masks.append(mask)
     masks = np.array(masks)
     return masks
+
+def tune_parameters(X, y, param_grid, n_train, verbose = True):
+    """X : array which would be split in train and val set according to n_train
+    n_train : number of train samples. Integer or percentage
+    param_grid : dict containing list of parameters to be tested
+    IMPORTANT : param_grid values have to be a list. ex : not 'hinge' but ['hinge']
+    """
+    
+    n_total = X.shape[0]
+    if n_total != y.shape[0]:
+        raise Exception('X and y have different size')
+    
+    
+    # Storing results
+    scores = {}
+    preds = {}
+    estimators = {}
+    param_grid = [param_grid]
+    for param in param_grid:
+        # sort the keys of a dictionary, for reproducibility
+        items = sorted(param.items())
+        keys, values = zip(*items)
+        for v in product(*values):
+            params = dict(zip(keys, v))
+            # Parameters are ready for fitting the model            
+            svm = SVM(**params)
+            
+            # Checking if n_train is percentage or integer
+            if n_train < 1:
+                idx_train = random.choice(np.arange(n_total), n_train*n_total, replace=False)
+            else :
+                idx_train = random.choice(np.arange(n_total), n_train, replace=False)
+               
+            idx_val = list(set(np.arange(n_total)) - set(idx_train))
+            # n_val max is set to 2000
+            if len(idx_val) > 2000:
+                idx_val = idx_val[:2000]
+            
+            # Fitting and storing results
+            svm.fit(X[idx_train], y_train[idx_train])
+            pred = svm.predict(X[idx_val])
+            estimators[str(params)] = svm.alphas_
+            preds[str(params)] = pred
+            score = np.mean(pred == y[idx_val])                
+            scores[str(params)]= score
+            
+            if verbose is True:
+                print(params)
+                print('SCORE : ', score)
+    
+    return {'scores' : scores, 'preds' : preds, 'estimators' : estimators}
