@@ -101,7 +101,7 @@ class SVM:
             self.K_test_ = self.fit_kernel_test(X_test)
             self.n_test_ = X_test.shape[0] # size of the test sample
         else:
-            semf.alphas_ = alphas
+            self.alphas_ = alphas
         
         n = self.n_test_
         
