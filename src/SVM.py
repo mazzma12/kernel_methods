@@ -1,6 +1,6 @@
 import numpy as np
 from numpy import linalg, random
-
+import pandas as pd
 # cvxopt QP solver
 import cvxopt
 from cvxopt import solvers, matrix
@@ -356,32 +356,39 @@ def tune_parameters(X, y, param_grid, n_train, verbose = True):
     
     return {'scores' : scores, 'preds' : preds, 'estimators' : estimators}
 
-def bagging(X, y, params, X_val=None, y_val=None, n_iter=100, ratio=0.4):
+def bagging(X, y, params, X_val, y_val, n_iter=100, ratio=0.4):
 
     """Bagging implementation.
+    
+    UPDATE : estimators disabled for the moment. Too computationally expensive, memory errors. 
+    Therefore passing X_val and y_val argument is necessary
+    DESCRIPTION :
     The prediction can be done after computation calling the svm.predict for svm in the estimators list
     and then taking the argmax over the labels, i.e the scipy.stats.mode(preds, axis=0) 
     Or it can be done in parallel parsing, X_val, y_val, and then the array preds is returned.
+    
     ---Inputs---
     X : A set of train data
     y : labels 
     params : dict of parameters for the SVM
     X_val, y_val : optional, for inside evaluation of our estimators
+    
     ---Outputs---
     estimators = list of svm objects
     preds : n_estimators*n_val array, if X_val is 
     score : intermediate score for each prediction, if y_val provided
+    
     """
     
     n_train, p = X.shape
     
     # To save the results
-    estimators = []
+    #estimators = []  Disabled for the moment because it lead to ''the kernel has died'' after 50 iterations
     preds = []
     scores = []
     
     for kk in range(n_iter):
-        print('---------- n_iter ------', kk, datetime.now())
+        print('---------- ', 'iter : ', kk,' ------')
         
         # Bootstrap phase
         X_bootstrap = []
@@ -394,7 +401,7 @@ def bagging(X, y, params, X_val=None, y_val=None, n_iter=100, ratio=0.4):
 
         # Fitting model
         svm = SVM(**params)
-        %time svm.fit(np.asarray(X_bootstrap), np.asarray(y_bootstrap))
+        svm.fit(np.asarray(X_bootstrap), np.asarray(y_bootstrap))
         
         if X_val is not None:
             # prediction and score
@@ -407,6 +414,12 @@ def bagging(X, y, params, X_val=None, y_val=None, n_iter=100, ratio=0.4):
                 print(" Global score ", np.mean(scipy.stats.mode(preds, 0)[0] == y_val))
         
         # Saving the estimator
-        estimators.append(svm)
-        
-    return {'estimators' : estimators, 'preds' : preds, 'scores' : scores}
+        #estimators.append(svm)
+        # Disabled for the moment because it lead to ''the kernel has died'' after 50 iterations
+    return { 'preds' : preds, 'scores' : scores}
+
+def submit_solution(y_pred):
+    df = pd.DataFrame()
+    df['Id'] = np.arange(1, y_pred.shape[0]+1)
+    df['Prediction'] = y_pred.astype(int)
+    df.to_csv('OVA_SVM_1_poly_0.01_2_squared_it14', index=False)
