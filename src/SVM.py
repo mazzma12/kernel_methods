@@ -257,7 +257,7 @@ class SVM:
     
     def fit_dual(self, y):
         
-        if self.loss == 'loss':
+        if self.loss == 'hinge':
             n = self.n_samples_
             diag_y = np.diag(y)
             self.p_ = (-y)
