@@ -1,5 +1,5 @@
 import numpy as np
-from numpy import linalg
+from numpy import linalg, random
 
 # cvxopt QP solver
 import cvxopt
@@ -8,12 +8,16 @@ solvers.options['show_progress'] = False # Verbose quite
 
 import scipy
 from scipy.spatial.distance import pdist, cdist, squareform
+from scipy.stats import mode
+
+from itertools import product
+
 
 class SVM:
     kernels_ = ['linear', 'rbf', 'Cauchy', 'poly', 'TStudent', 'cosine', 'GHI']
     losses_ = ['hinge', 'squared_hinge']
     
-    def __init__(self, C=1, kernel='rbf', gamma=0.1, mode='OVO', loss='hinge', c=0, degree=2):
+    def __init__(self, C=1, kernel='rbf', gamma=0.1, mode='OVA', loss='hinge', c=0, degree=2):
         self.C = C
         self.kernel = kernel # kernel_function 'rbf', 'linear'
         self.gamma = gamma # Kernel coefficient gamma for 'rbf'
@@ -339,7 +343,7 @@ def tune_parameters(X, y, param_grid, n_train, verbose = True):
                 idx_val = idx_val[:2000]
             
             # Fitting and storing results
-            svm.fit(X[idx_train], y_train[idx_train])
+            svm.fit(X[idx_train], y[idx_train])
             pred = svm.predict(X[idx_val])
             estimators[str(params)] = svm.alphas_
             preds[str(params)] = pred
@@ -351,3 +355,58 @@ def tune_parameters(X, y, param_grid, n_train, verbose = True):
                 print('SCORE : ', score)
     
     return {'scores' : scores, 'preds' : preds, 'estimators' : estimators}
+
+def bagging(X, y, params, X_val=None, y_val=None, n_iter=100, ratio=0.4):
+
+    """Bagging implementation.
+    The prediction can be done after computation calling the svm.predict for svm in the estimators list
+    and then taking the argmax over the labels, i.e the scipy.stats.mode(preds, axis=0) 
+    Or it can be done in parallel parsing, X_val, y_val, and then the array preds is returned.
+    ---Inputs---
+    X : A set of train data
+    y : labels 
+    params : dict of parameters for the SVM
+    X_val, y_val : optional, for inside evaluation of our estimators
+    ---Outputs---
+    estimators = list of svm objects
+    preds : n_estimators*n_val array, if X_val is 
+    score : intermediate score for each prediction, if y_val provided
+    """
+    
+    n_train, p = X.shape
+    
+    # To save the results
+    estimators = []
+    preds = []
+    scores = []
+    
+    for kk in range(n_iter):
+        print('---------- n_iter ------', kk, datetime.now())
+        
+        # Bootstrap phase
+        X_bootstrap = []
+        y_bootstrap = []
+        n_samples = round(n_train * ratio)
+        random_indexes = random.choice(n_samples, n_samples)
+        for idx in random_indexes:
+            X_bootstrap.append(X[idx])
+            y_bootstrap.append(y[idx])
+
+        # Fitting model
+        svm = SVM(**params)
+        %time svm.fit(np.asarray(X_bootstrap), np.asarray(y_bootstrap))
+        
+        if X_val is not None:
+            # prediction and score
+            pred = svm.predict(X_val)
+            preds.append(pred)
+            if y_val is not None:
+                score = np.mean(pred == y_val)
+                scores.append(score)
+                print(" Score iter ", score)
+                print(" Global score ", np.mean(scipy.stats.mode(preds, 0)[0] == y_val))
+        
+        # Saving the estimator
+        estimators.append(svm)
+        
+    return {'estimators' : estimators, 'preds' : preds, 'scores' : scores}
