@@ -41,7 +41,7 @@ def plot(X, lim=4):
         plt.imshow(X[kk], cmap='gray')
         plt.show()
 
-def shift(X, direction):
+def shift(X, direction, number=1):
     n, p = X.shape
     X_r = X[:, :1024].reshape(n, 32, 32)
     X_g = X[:, 1024:2048].reshape(n, 32, 32)
@@ -50,21 +50,21 @@ def shift(X, direction):
     colors = [X_r, X_g, X_b]
     for kk, col in enumerate(colors):
         if (direction == 'right'):
-            temp = col[:, :, 0]
-            shifted_col = np.roll(col, axis=2, shift=1)
-            shifted_col[:, :, 0] = temp
+            temp = col[:, :, number]
+            shifted_col = np.roll(col, axis=2, shift=number)
+            shifted_col[:, :, number] = temp
         elif (direction == 'left'):
-            temp = col[:, :, -1]
-            shifted_col = np.roll(col, axis=2, shift=-1)
-            shifted_col[:, :, -1] = temp
+            temp = col[:, :, -number]
+            shifted_col = np.roll(col, axis=2, shift=-number)
+            shifted_col[:, :, -number] = temp
         elif (direction == 'up'):
-            temp = col[:, -1, :]
-            shifted_col = np.roll(col, axis=1, shift=-1)
-            shifted_col[:, -1, :] = temp
+            temp = col[:, -number, :]
+            shifted_col = np.roll(col, axis=1, shift=-number)
+            shifted_col[:, -number, :] = temp
         elif (direction == 'down'):
-            temp = col[:, 0, :]
-            shifted_col = np.roll(col, axis=1, shift=1)
-            shifted_col[:, 0, :] = temp
+            temp = col[:, number, :]
+            shifted_col = np.roll(col, axis=1, shift=number)
+            shifted_col[:, number, :] = temp
         else:
             print('Direction \'%s\'' % direction, 'is not supported')
             return None
@@ -77,17 +77,23 @@ def shift(X, direction):
 def flip_lr(X):
     # Augmentation by flipping (transpose)
     n, p = X.shape
-    X_res = np.zeros((n, p))  # FLipped images are assigned here
-    X_r = X[:, :1024]
-    X_g = X[:, 1024:2048]
-    X_b = X[:, 2048:]
+    
+    if p != 3072:
+        X_res = np.zeros((n, p))
+        for kk in range(n):
+            X_res[kk] = np.fliplr(X[kk].reshape(np.sqrt(p), np.sqrt(p))).ravel()
+    else:
+        X_res = np.zeros((n, p))  # FLipped images are assigned here
+        X_r = X[:, :1024]
+        X_g = X[:, 1024:2048]
+        X_b = X[:, 2048:]
 
-    for kk in range(n):
-        x_r = np.fliplr(X_r[kk].reshape(32, 32)).ravel()
-        x_g = np.fliplr(X_b[kk].reshape(32, 32)).ravel()
-        x_b = np.fliplr(X_g[kk].reshape(32, 32)).ravel()
-        new_sample = np.r_[x_r, x_g, x_b].reshape(1, -1)
-        X_res[kk] = new_sample
+        for kk in range(n):
+            x_r = np.fliplr(X_r[kk].reshape(32, 32)).ravel()
+            x_g = np.fliplr(X_b[kk].reshape(32, 32)).ravel()
+            x_b = np.fliplr(X_g[kk].reshape(32, 32)).ravel()
+            new_sample = np.r_[x_r, x_g, x_b].reshape(1, -1)
+            X_res[kk] = new_sample
 
     return X_res
 
