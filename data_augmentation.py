@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from numpy import arctan2
 
 import matplotlib.pyplot as plt
 
@@ -21,18 +22,82 @@ scharr_y = np.array([-3, -10, -3, 0, 0, 0, 3, 10, 3])
 def convolution(image_patch):
     Gx = np.dot(scharr_x, image_patch)
     Gy = np.dot(scharr_y, image_patch)
-    return np.sqrt(Gx ** 2 + Gy ** 2)
+    # return np.sqrt(Gx ** 2 + Gy ** 2)
+    return Gx, Gy
+
+def intensity_and_orientation(gx, gy):
+    intensity = np.sqrt(gx**2 + gy**2)
+    orientation = (arctan2(gy, gx) * 180 / np.pi) % 180
+            
+    return intensity, orientation
 
 def scharr_gradient(image):
-    sz = 32 #image size is 32x32
-    deltas = [-1, 0, 1]
-    indexes = lambda i, j: [(i + di) * sz + j - dj for di in deltas for dj in deltas]
-    return np.array([convolution(image[indexes(i, j)]) for i in range(1, sz - 1) for j in range(1, sz - 1)])
+    gx = np.zeros(image.shape)
+    gx[:, 1:-1] = -image[:, :-2] + image[:, 2:]
+    gx[:, 0] = -image[:, 0] + image[:, 1]
+    gx[:, -1] = -image[:, -2] + image[:, -1]
+    
+    gy = np.zeros(image.shape)
+    gy[1:-1, :] = image[:-2, :] - image[2:, :]
+    gy[0, :] = image[0, :] - image[1, :]
+    gy[-1, :] = image[-2, :] - image[-1, :]
+    return intensity_and_orientation(gx, gy)
 
-def scharr_gradients(X):
-    X_gray = rgb2gray(X, reshape = False)
-    return np.apply_along_axis(scharr_gradient, axis = 1, arr = X_gray)
+def scharr_gradients(X, gray = True):
+    if gray:
+        X_gray = rgb2gray(X, reshape = False)
+        return np.apply_along_axis(scharr_gradient, axis = 0, arr = X_gray)
+    else:
+        X_max_gradients = 0
+        colors = ['red', 'green', 'blue']
+        image_len = 1024
+        for color, color_number in zip(colors, range(3)):
+            print('Processing color:', color)
+            X_color = X[:, image_len * color_number : image_len * (color_number + 1)]
+            X_color_gradients = np.apply_along_axis(scharr_gradient, axis = 1, arr = X_color)
+            X_max_gradients = np.maximum(X_max_gradients, X_color_gradients)
+        return X_max_gradients
+        
+def subimage_histogram(intensities, orientations, nbins, b_step):
+    left_bins  = (orientations % 180) // b_step
+    left_bins  = left_bins % nbins
+    right_bins = (left_bins + 1) % nbins
+    to_left_bin  = (orientations / b_step - left_bins) * intensities
+    to_right_bin = (left_bins + 1 - orientations / b_step) * intensities
+    histogram = np.zeros(nbins)
+    for i in range(nbins):
+        histogram[i] = np.sum((left_bins == i) * to_left_bin + (right_bins == i) * to_right_bin)
+    return histogram
+        
+def image_histogram(intensities, orientations, cell_sz, cells, step, nbins, b_step, image_sz):
+    histogram = np.zeros(cells ** 2 * nbins)
+    for i in range(0, image_sz, step):
+        for j in range(0, image_sz, step):
+            sub_intensities  = intensities[i:i + cell_sz, j:j + cell_sz]
+            sub_orientations = orientations[i:i + cell_sz, j:j + cell_sz]
+            position = (i / step * cells + j / step) * nbins
+            histogram[position:position + nbins] = subimage_histogram(sub_intensities, sub_orientations, nbins, b_step)
+    return histogram
 
+def histogram_of_gradients(X, nbins, cell_sz, step, colored = True):
+    if colored:
+        X_gray = rgb2gray(X)
+    else:
+        X_gray = X
+    intensities  = np.zeros(X_gray.shape)
+    orientations = np.zeros(X_gray.shape)
+    for i, image in enumerate(X_gray):
+        intensities[i], orientations[i] = scharr_gradient(image)
+    # X_gradients = np.apply_along_axis(lambda image: scharr_gradient(image, only_intensity = False), axis = 1, arr = X_gray)
+    b_step = 180/nbins
+    image_sz = len(X_gray[0]) #images are supposed to be square
+    cells = image_sz // step
+    HOG = np.zeros((len(X), cells ** 2 * nbins))
+    for i, (intensity, orientation) in enumerate(zip(intensities, orientations)):
+        HOG[i] = image_histogram(intensity, orientation, cell_sz, cells, step, nbins, b_step, image_sz)
+    return HOG
+            
+    
 def plot(X, lim=4):
     n = X.shape[0]
     for kk in range(n):
@@ -41,7 +106,7 @@ def plot(X, lim=4):
         plt.imshow(X[kk], cmap='gray')
         plt.show()
 
-def shift(X, direction, number=1):
+def shift(X, direction):
     n, p = X.shape
     X_r = X[:, :1024].reshape(n, 32, 32)
     X_g = X[:, 1024:2048].reshape(n, 32, 32)
@@ -50,21 +115,21 @@ def shift(X, direction, number=1):
     colors = [X_r, X_g, X_b]
     for kk, col in enumerate(colors):
         if (direction == 'right'):
-            temp = col[:, :, number]
-            shifted_col = np.roll(col, axis=2, shift=number)
-            shifted_col[:, :, number] = temp
+            temp = col[:, :, 0]
+            shifted_col = np.roll(col, axis=2, shift=1)
+            shifted_col[:, :, 0] = temp
         elif (direction == 'left'):
-            temp = col[:, :, -number]
-            shifted_col = np.roll(col, axis=2, shift=-number)
-            shifted_col[:, :, -number] = temp
+            temp = col[:, :, -1]
+            shifted_col = np.roll(col, axis=2, shift=-1)
+            shifted_col[:, :, -1] = temp
         elif (direction == 'up'):
-            temp = col[:, -number, :]
-            shifted_col = np.roll(col, axis=1, shift=-number)
-            shifted_col[:, -number, :] = temp
+            temp = col[:, -1, :]
+            shifted_col = np.roll(col, axis=1, shift=-1)
+            shifted_col[:, -1, :] = temp
         elif (direction == 'down'):
-            temp = col[:, number, :]
-            shifted_col = np.roll(col, axis=1, shift=number)
-            shifted_col[:, number, :] = temp
+            temp = col[:, 0, :]
+            shifted_col = np.roll(col, axis=1, shift=1)
+            shifted_col[:, 0, :] = temp
         else:
             print('Direction \'%s\'' % direction, 'is not supported')
             return None
@@ -77,23 +142,17 @@ def shift(X, direction, number=1):
 def flip_lr(X):
     # Augmentation by flipping (transpose)
     n, p = X.shape
-    
-    if p != 3072:
-        X_res = np.zeros((n, p))
-        for kk in range(n):
-            X_res[kk] = np.fliplr(X[kk].reshape(np.sqrt(p), np.sqrt(p))).ravel()
-    else:
-        X_res = np.zeros((n, p))  # FLipped images are assigned here
-        X_r = X[:, :1024]
-        X_g = X[:, 1024:2048]
-        X_b = X[:, 2048:]
+    X_res = np.zeros((n, p))  # FLipped images are assigned here
+    X_r = X[:, :1024]
+    X_g = X[:, 1024:2048]
+    X_b = X[:, 2048:]
 
-        for kk in range(n):
-            x_r = np.fliplr(X_r[kk].reshape(32, 32)).ravel()
-            x_g = np.fliplr(X_b[kk].reshape(32, 32)).ravel()
-            x_b = np.fliplr(X_g[kk].reshape(32, 32)).ravel()
-            new_sample = np.r_[x_r, x_g, x_b].reshape(1, -1)
-            X_res[kk] = new_sample
+    for kk in range(n):
+        x_r = np.fliplr(X_r[kk].reshape(32, 32)).ravel()
+        x_g = np.fliplr(X_b[kk].reshape(32, 32)).ravel()
+        x_b = np.fliplr(X_g[kk].reshape(32, 32)).ravel()
+        new_sample = np.r_[x_r, x_g, x_b].reshape(1, -1)
+        X_res[kk] = new_sample
 
     return X_res
 
