@@ -2,7 +2,10 @@ import numpy as np
 import pandas as pd
 from numpy import arctan2
 
+import math
 import matplotlib.pyplot as plt
+from matplotlib.colors import rgb_to_hsv
+
 
 def rgb2gray(rgb, reshape = True):
     # if reshape is true, array is reshape in 32.32 pixels
@@ -19,6 +22,62 @@ def rgb2gray(rgb, reshape = True):
 scharr_x = np.array([-3, 0, 3, -10, 0, 10, -3, 0, 3])
 scharr_y = np.array([-3, -10, -3, 0, 0, 0, 3, 10, 3])
 
+def rgb2hsv2(X):
+    n = X.shape[0]
+    p = X.shape[1]
+    X_res = np.zeros_like(X)
+    for kk in range(n):
+        X_res[kk] = hsv_to_rgb(X[kk].reshape(p/3, 3)).reshape(-1,)
+    
+    return X_res
+
+"""
+def hsv2rgb(h, s, v):
+    h = float(h)
+    s = float(s)
+    v = float(v)
+    h60 = h / 60.0
+    h60f = math.floor(h60)
+    hi = int(h60f) % 6
+    f = h60 - h60f
+    p = v * (1 - s)
+    q = v * (1 - f * s)
+    t = v * (1 - (1 - f) * s)
+    r, g, b = 0, 0, 0
+    if hi == 0: r, g, b = v, t, p
+    elif hi == 1: r, g, b = q, v, p
+    elif hi == 2: r, g, b = p, v, t
+    elif hi == 3: r, g, b = p, q, v
+    elif hi == 4: r, g, b = t, p, v
+    elif hi == 5: r, g, b = v, p, q
+    r, g, b = int(r * 255), int(g * 255), int(b * 255)
+    return r, g, b
+"""
+"""def rgb2hsv(X):
+    # X is just an image, not an array
+    n = X.shape[0]
+    r = X[:n]
+    g = X[n/3: n/2]
+    b = X[n/2:]
+    r, g, b = r/255.0, g/255.0, b/255.0
+    mx = max(r, g, b)
+    mn = min(r, g, b)
+    df = mx-mn
+    if mx == mn:
+        h = 0
+    elif mx == r:
+        h = (60 * ((g-b)/df) + 360) % 360
+    elif mx == g:
+        h = (60 * ((b-r)/df) + 120) % 360
+    elif mx == b:
+        h = (60 * ((r-g)/df) + 240) % 360
+    if mx == 0:
+        s = 0
+    else:
+        s = df/mx
+    v = mx
+    return np.r_[h, s, v]
+"""
 def convolution(image_patch):
     Gx = np.dot(scharr_x, image_patch)
     Gy = np.dot(scharr_y, image_patch)
