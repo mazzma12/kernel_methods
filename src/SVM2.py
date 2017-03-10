@@ -36,7 +36,7 @@ class SVM2:
     kernels_ = ['linear', 'rbf', 'Cauchy', 'poly', 'TStudent', 'cosine', 'GHI']
     losses_ = ['hinge', 'squared_hinge']
     
-    def __init__(self, C=1, kernel='poly', gamma=0.1, mode='OVO', loss='squared_hinge', c=0.159, degree=4, 
+    def __init__(self, C=1, kernel='poly', gamma=0.1, mode='OVO', loss='squared_hinge', c=0.159, degree=4, intercept=False,
                  decoding='loss-based'):
         self.C = C
         self.kernel = kernel # kernel_function 'rbf', 'linear'
@@ -46,9 +46,10 @@ class SVM2:
         self.c = c # Intercept of the polynomial kernel
         self.degree = degree # Degree of the polynomial kernel
         self.alphas_ = [] # coefficients of the estimators
-        self.decoding_ = decoding # Way of decoding the coding matrix 
+        self.decoding = decoding # Way of decoding the coding matrix 
+        self.intercept = False
 
-    def fit(self, X, y, ):
+    def fit(self, X, y):
         
         self.X_train_ = X
         self.y_train_ = y
@@ -70,7 +71,15 @@ class SVM2:
                 self.fit_dual(y_copy)
                 
                 # Solving the QP
-                sol = solvers.qp(matrix(self.K_), matrix(self.p_), matrix(self.G_), matrix(self.h_))
+                
+                if self.intercept is True:
+                    sol = solvers.qp(matrix(self.K_ + self.Q_, tc='d'), matrix(self.p_, tc='d'),
+                                     matrix(self.G_, tc='d'), matrix(self.h_, tc='d'), matrix(self.A_, tc='d'), 
+                                     matrix(self.b_, tc='d'))
+                # Saving the solution
+                else:
+                    sol = solvers.qp(matrix(self.K_ + self.Q_, tc='d'), matrix(self.p_, tc='d'), matrix(self.G_), matrix(self.h_, tc='d'))
+                    
                 # Saving the solution
                 self.alphas_.append(np.array(sol['x']).reshape(-1,))
     
@@ -99,7 +108,12 @@ class SVM2:
                     this_K = this_K[:, mask]
                     self.fit_dual(y_copy)
                     # Solvign the QP
-                    sol = solvers.qp(matrix(this_K + self.Q_), matrix(self.p_), matrix(self.G_), matrix(self.h_))
+                    if self.intercept is True:
+                        sol = solvers.qp(matrix(this_K + self.Q_, tc='d'), matrix(self.p_, tc='d'), matrix(self.G_),
+                                         matrix(self.h_), matrix(self.A_, tc='d'), matrix(self.b_, tc='d'))
+                    else:
+                        sol = solvers.qp(matrix(this_K + self.Q_, tc='d'), matrix(self.p_, tc='d'), matrix(self.G_), matrix(self.h_))
+                        
                     # Saving the solution in list attibute alphas_
                     self.alphas_.append(np.array(sol['x']).reshape(-1,))
                     
@@ -163,10 +177,10 @@ class SVM2:
             for mask in self.coding_matrix_:
                 class_pred = estimators_preds.copy()
                 
-                if self.decoding_ == 'Hamming':
+                if self.decoding == 'Hamming':
                     class_pred = (1 - np.sign(class_pred*mask.reshape(-1,1))).sum(0)
                     
-                elif self.decoding_ == 'loss-based':
+                elif self.decoding == 'loss-based':
                     class_pred = ((np.maximum(1 - class_pred*mask.reshape(-1,1), 0))**2).sum(0)
                     
                 classes_preds.append(class_pred)
@@ -175,7 +189,7 @@ class SVM2:
             self.classes_preds = classes_preds
             y_pred = classes_preds.argmin(0) # Not argmax, because it's loss
             return y_pred
-
+        
     def fit_kernel(self):
         
         X = self.X_train_
@@ -205,15 +219,18 @@ class SVM2:
             # Error raised solving the QP
             # Error QP : Rank(A) < p or Rank([P; A; G]) < n
 
-            pairwise_dists = squareform(pdist(X_test))
+            pairwise_dists = squareform(pdist(X))
             K = -(pairwise_dists ** self.degree)
+        
         elif self.kernel == 'Cauchy':
             pairwise_dists = squareform(pdist(X, 'euclidean'))
             K = 1 / (1 + (pairwise_dists ** 2) / self.gamma**2)
+        
         elif self.kernel == 'cosine':
             # Doesn't perform well ACC 20% on n=4000
             pairwise_dists = squareform(pdist(X, 'cosine'))
             K = -pairwise_dists + 1
+        
         elif self.kernel == 'sigmoid':
             # Also known as the tangent hyperbolic
             #There are two adjustable parameters in the sigmoid kernel
@@ -221,18 +238,53 @@ class SVM2:
             #A common value for gamma is 1/N, where N is the data dimension.
             pairwise_dists = squareform(pdist(X, 'cosine'))
             K = scipy.tanh(self.gamma*np.dot(X, X.transpose()) + self.c)
-        elif self.kernel == 'min':
-            K = squareform(pdist(X, lambda u, v : np.sum(scipy.minimum(u, v))))
-        
-        elif self.kernel == 'GHI':
-            # Error QP : Rank(A) < p or Rank([P; A; G]) < n
-            K = squareform(pdist(X, lambda u, v : np.sum(scipy.minimum(np.abs(u)** self.gamma, np.abs(v)** self.gamma))))
         
         elif isinstance(self.kernel, list):
+            
             pairwise_dists = squareform(pdist(X, 'euclidean'))
             K = 0.1*scipy.exp(-self.gamma*pairwise_dists ** 2)
             K += 0.9*(self.c + np.dot(X, X.transpose())) ** self.degree
-                
+        
+        elif self.kernel == 'chi2':
+            data_1 = X
+            data_2 = X
+            if np.any(data_1 < 0) or np.any(data_2 < 0):
+                warnings.warn('Chi^2 kernel requires data to be strictly positive!')
+
+            K = np.zeros((data_1.shape[0], data_2.shape[0]))
+
+            for d in range(data_1.shape[1]):
+                column_1 = data_1[:, d].reshape(-1, 1)
+                column_2 = data_2[:, d].reshape(-1, 1)
+            K += (column_1 - column_2.T)**2 / (column_1 + column_2.T)
+            
+        elif self.kernel == 'min':
+            data_1 = X
+            data_2 = X
+            if np.any(data_1 < 0) or np.any(data_2 < 0):
+                warnings.warn('Min kernel requires data to be strictly positive!')
+
+            K = np.zeros((data_1.shape[0], data_2.shape[0]))
+
+            for d in range(data_1.shape[1]):
+                column_1 = data_1[:, d].reshape(-1, 1)
+                column_2 = data_2[:, d].reshape(-1, 1)
+                K += np.minimum(column_1, column_2.T)
+        
+        elif self.kernel == 'GHI':
+            data_1 = np.abs(X)**self.gamma
+            data_2 = np.abs(X)**self.gamma
+            if np.any(data_1 < 0) or np.any(data_2 < 0):
+                warnings.warn('Min kernel requires data to be strictly positive!')
+
+            K = np.zeros((data_1.shape[0], data_2.shape[0]))
+
+            for d in range(data_1.shape[1]):
+                column_1 = data_1[:, d].reshape(-1, 1)
+                column_2 = data_2[:, d].reshape(-1, 1)
+                K += np.minimum(column_1, column_2.T)
+            
+            K += np.eye(K.shape[0]) * 0.0000001
         
         else:         
             raise Exception('the kernel must either be rbf or linear')
@@ -262,12 +314,14 @@ class SVM2:
 
             pairwise_dists = cdist(X_test, self.X_train_)
             K = - scipy.log(pairwise_dists ** self.degree + 1)
+        
         elif self.kernel == 'power':
             # ONLY FOR POSITIVE VALUES
             # Error raised solving the QP
 
             pairwise_dists = cdist(X_test, self.X_train_)
             K = -(pairwise_dists ** self.degree)
+        
         elif self.kernel == 'Cauchy':
             pairwise_dists = cdist(X_test, self.X_train_)
             K = 1 / (1 + (pairwise_dists ** 2) / self.gamma**2)
@@ -279,15 +333,54 @@ class SVM2:
         elif self.kernel == 'sigmoid':
             # Also known as the tangent hyperbolic
             K = scipy.tanh(self.gamma*np.dot(X_test, self.X_train_.transpose()) + self.c)
-        elif self.kernel == 'min':
-            K = cdist(X_test, self.X_train_, lambda u, v : np.sum(scipy.minimum(u, v)))
-        elif self.kernel == 'GHI':
-            K = cdist(X_test, self.X_train_, 
-                      lambda u, v : np.sum(scipy.minimum(np.abs(u)** self.gamma, np.abs(v)** self.gamma)))
+        
         elif isinstance(self.kernel, list):
+            
             pairwise_dists = cdist(X_test, self.X_train_)
             K = 0.1*scipy.exp(-self.gamma*pairwise_dists ** 2)
             K += 0.9*(self.c + np.dot(X_test, self.X_train_.transpose())) ** self.degree
+        
+        elif self.kernel == 'chi2':
+            data_1 = X_test
+            data_2 = self.X_train_
+            if np.any(data_1 < 0) or np.any(data_2 < 0):
+                warnings.warn('Chi^2 kernel requires data to be strictly positive!')
+
+            K = np.zeros((data_1.shape[0], data_2.shape[0]))
+
+            for d in range(data_1.shape[1]):
+                column_1 = data_1[:, d].reshape(-1, 1)
+                column_2 = data_2[:, d].reshape(-1, 1)
+            K += (column_1 - column_2.T)**2 / (column_1 + column_2.T)
+        
+        elif self.kernel == 'min':
+            data_1 = X_test
+            data_2 = self.X_train_
+            if np.any(data_1 < 0) or np.any(data_2 < 0):
+                warnings.warn('Min kernel requires data to be strictly positive!')
+
+            K = np.zeros((data_1.shape[0], data_2.shape[0]))
+
+            for d in range(data_1.shape[1]):
+                column_1 = data_1[:, d].reshape(-1, 1)
+                column_2 = data_2[:, d].reshape(-1, 1)
+                K += np.minimum(column_1, column_2.T)
+        
+        elif self.kernel == 'GHI':
+            data_1 = np.abs(X_test)**self.gamma
+            data_2 = np.abs(self.X_train_)**self.gamma
+            if np.any(data_1 < 0) or np.any(data_2 < 0):
+                warnings.warn('Min kernel requires data to be strictly positive!')
+
+            K = np.zeros((data_1.shape[0], data_2.shape[0]))
+
+            for d in range(data_1.shape[1]):
+                column_1 = data_1[:, d].reshape(-1, 1)
+                column_2 = data_2[:, d].reshape(-1, 1)
+                K += np.minimum(column_1, column_2.T)
+
+
+                
 
         else:
             raise Exception('the kernel must either be rbf or linear')
@@ -299,21 +392,34 @@ class SVM2:
         n = y.shape[0]
         # We don't use self.n_samples_ because it's not up to date for the OVO
         # since the subproblem size has been modified in between (and we don't use setters)
+        y = y.astype(float)
         
         if self.loss == 'hinge':
             diag_y = np.diag(y)
             self.p_ = (-y)
-            self.Q_ = self.K_ # Quadratic matrix
+            self.Q_ = np.zeros((n,n), dtype= float)# Quadratic matrix
             self.G_ = np.r_[diag_y, -diag_y] # Constraint matrix of size(2*n, n)
-            self.h_ = np.r_[self.C*np.ones(n), np.zeros(n)]
-                       
+            self.h_ = np.r_[self.C*np.ones(n, dtype=float), np.zeros(n, dtype=float)]
+            if self.intercept is True:
+                self.A_ = np.zeros(n, dtype=float)
+                self.b_ = 0.0
+            else :
+                self.A_ = None #np.eye(n, dtype=float)
+                self.b_ = None #np.zeros(n, dtype=float)           
+        
         elif self.loss == 'squared_hinge':
             
             diag_y = np.diag(y)
             self.p_ = (-y)
-            self.Q_ = self.C*n*np.eye(n) # Quadratic matrix, need + K, added in fit()
+            self.Q_ = self.C*n*np.eye(n, dtype=float) # Quadratic matrix, need + K, added in fit()
             self.G_ = -diag_y # Constraint matrix of size(2*n, n)
-            self.h_ = np.zeros(n)
+            self.h_ = np.zeros(n, dtype=float)
+            if self.intercept is True:
+                self.A_ = np.zeros(n, dtype=float)
+                self.b_ = 0.0
+            else :
+                self.A_ = None #np.eye(n, dtype=float)
+                self.b_ = None #np.zeros(n, dtype=float)
             
         else:
             raise Exception('loss should be hinge loss or squared_hinge_loss')
@@ -401,6 +507,7 @@ def tune_parameters(X, y, X_val, y_val, param_grid, n_train, X_test = None, verb
     
     return {'scores' : scores, 'preds' : preds, 'estimators' : estimators, 'preds_test' : preds_test}
 
+
 def bagging(X, y, params, X_val, y_val, n_iter=100, ratio=0.4):
 
     """Bagging implementation.
@@ -468,3 +575,120 @@ def submit_solution(y_pred):
     df['Id'] = np.arange(1, y_pred.shape[0]+1)
     df['Prediction'] = y_pred.astype(int)
     df.to_csv('OVA_SVM_1_poly_0.01_2_squared_it14', index=False)
+
+def mode(a, axis=0, weights=None):
+    """It onlt works if the accuracy is > 50 % 
+    Otherwise we make much mistake than good prediction, so taign the mode leads to a worse score
+    """
+    if isinstance(a, np.ndarray):
+        pass
+    else:
+        a = np.asarray(a)
+    scores = np.unique(np.ravel(a))       # get ALL unique values
+    testshape = list(a.shape)
+    if weights is None:
+        weights = np.ones(a.shape[0])
+    testshape[axis] = 1
+    oldmostfreq = np.zeros(testshape, dtype=a.dtype)
+    oldcounts = np.zeros(testshape, dtype=int)
+    for score in scores:
+        template = (a == score).astype(int)
+        counts = np.expand_dims(np.dot(weights, template), axis)
+        mostfrequent = np.where(counts > oldcounts, score, oldmostfreq)
+        oldcounts = np.maximum(counts, oldcounts)
+        oldmostfreq = mostfrequent
+
+    return mostfrequent, oldcounts
+
+def _chk_asarray(a, axis):
+    if axis is None:
+        a = np.ravel(a)
+        outaxis = 0
+    else:
+        a = np.asarray(a)
+        outaxis = axis
+
+    if a.ndim == 0:
+        a = np.atleast_1d(a)
+
+    return a, outaxis
+
+def bagging_corrected(l_bag, y_val):
+    score_max = np.max(l_bag['scores'])
+    exp_score =  np.exp(l_bag['scores'] - score_max)
+    w = exp_score / np.sum(exp_score)
+    pred_corrected = mode(l_bag['preds'], 0, weights=w)
+    score_corrected = np.mean(y_val == pred_corrected)
+    print(score_corrected)
+    return score_corrected
+
+    
+def tune_parameters_random(X, y, X_val, y_val, param_grid, n_train, n_iter=1, X_test = None, verbose = True):
+    """X : array which would be split in train and val set according to n_train
+    n_train : number of train samples. Integer or percentage
+    param_grid : dict containing list of parameters to be tested
+    IMPORTANT : param_grid values have to be a list. ex : not 'hinge' but ['hinge']
+    IMPORTANT 2 : We should pass X_val as an argument, because an image x is differentiate 4 times. Therefore if only 2 of them are in the train set, the 2 others can be in the validation one, and hence the score increase 
+    """
+    
+    n_total = X.shape[0]
+    if n_total != y.shape[0]:
+        raise Exception('X and y have different size')
+        
+    if n_train <= 1:
+        # Checking if n_train is percentage or integer
+        n_train = round(n_train*n_total)
+    
+    # Storing results
+    scores = {}
+    preds = {}
+    preds_test = {}
+    estimators = {}
+    param_grid = [param_grid]
+    for param in param_grid:
+        # sort the keys of a dictionary, for reproducibility
+        items = sorted(param.items())
+        keys, values = zip(*items)
+        for v in product(*values):
+            params = dict(zip(keys, v))
+            # Parameters are ready for fitting the model            
+            
+            for kk in range(n_iter):
+                print('---------- ', 'iter : ', kk,' ------')
+                # Fitting the model here is necessary, it leads to an error if before loop otherwise
+                svm = SVM2(**params)
+
+        
+                # Bootstrap phase
+                X_bootstrap = []
+                y_bootstrap = []
+                random_indexes = random.choice(n_total, n_train, replace=True)
+                print('rnd ', random_indexes.shape[0])
+                for idx in random_indexes:
+                    X_bootstrap.append(X[idx])
+                    y_bootstrap.append(y[idx])
+
+                #idx_val = list(set(np.arange(n_total)) - set(idx_train))
+                # n_val max is set to 2000
+                """if len(idx_val) > 2000:
+                    idx_val = idx_val[:2000]
+                """
+                # Fitting and storing results
+                svm.fit(np.asarray(X_bootstrap), np.asarray(y_bootstrap))
+                """idx_val = np.random.choice(X_val.shape[0], 2000, replace=False)
+                print('idx_val : ', idx_val.shape[0])"""
+                pred = svm.predict(X_val)
+                estimators[str(params)] = svm.alphas_
+                preds[str(params)] = pred
+                score = np.mean(pred == y_val)                
+                scores[str(params)]= score
+
+                if X_test is not None:
+                        pred_test = svm.predict(X_test)
+                        preds_test[str(params)] = pred_test
+
+                if verbose is True:
+                    print(params)
+                    print('SCORE : ', score)
+    
+    return {'scores' : scores, 'preds' : preds, 'estimators' : estimators, 'preds_test' : preds_test}
