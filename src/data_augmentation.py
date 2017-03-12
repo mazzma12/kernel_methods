@@ -2,10 +2,7 @@ import numpy as np
 import pandas as pd
 from numpy import arctan2
 
-import math
 import matplotlib.pyplot as plt
-from matplotlib.colors import rgb_to_hsv
-
 
 def rgb2gray(rgb, reshape = True):
     # if reshape is true, array is reshape in 32.32 pixels
@@ -22,62 +19,6 @@ def rgb2gray(rgb, reshape = True):
 scharr_x = np.array([-3, 0, 3, -10, 0, 10, -3, 0, 3])
 scharr_y = np.array([-3, -10, -3, 0, 0, 0, 3, 10, 3])
 
-def rgb2hsv2(X):
-    n = X.shape[0]
-    p = X.shape[1]
-    X_res = np.zeros_like(X)
-    for kk in range(n):
-        X_res[kk] = hsv_to_rgb(X[kk].reshape(p/3, 3)).reshape(-1,)
-    
-    return X_res
-
-"""
-def hsv2rgb(h, s, v):
-    h = float(h)
-    s = float(s)
-    v = float(v)
-    h60 = h / 60.0
-    h60f = math.floor(h60)
-    hi = int(h60f) % 6
-    f = h60 - h60f
-    p = v * (1 - s)
-    q = v * (1 - f * s)
-    t = v * (1 - (1 - f) * s)
-    r, g, b = 0, 0, 0
-    if hi == 0: r, g, b = v, t, p
-    elif hi == 1: r, g, b = q, v, p
-    elif hi == 2: r, g, b = p, v, t
-    elif hi == 3: r, g, b = p, q, v
-    elif hi == 4: r, g, b = t, p, v
-    elif hi == 5: r, g, b = v, p, q
-    r, g, b = int(r * 255), int(g * 255), int(b * 255)
-    return r, g, b
-"""
-"""def rgb2hsv(X):
-    # X is just an image, not an array
-    n = X.shape[0]
-    r = X[:n]
-    g = X[n/3: n/2]
-    b = X[n/2:]
-    r, g, b = r/255.0, g/255.0, b/255.0
-    mx = max(r, g, b)
-    mn = min(r, g, b)
-    df = mx-mn
-    if mx == mn:
-        h = 0
-    elif mx == r:
-        h = (60 * ((g-b)/df) + 360) % 360
-    elif mx == g:
-        h = (60 * ((b-r)/df) + 120) % 360
-    elif mx == b:
-        h = (60 * ((r-g)/df) + 240) % 360
-    if mx == 0:
-        s = 0
-    else:
-        s = df/mx
-    v = mx
-    return np.r_[h, s, v]
-"""
 def convolution(image_patch):
     Gx = np.dot(scharr_x, image_patch)
     Gy = np.dot(scharr_y, image_patch)
@@ -90,16 +31,53 @@ def intensity_and_orientation(gx, gy):
             
     return intensity, orientation
 
-def scharr_gradient(image):
+def scharr_gradient(image, scharr = False):
     gx = np.zeros(image.shape)
-    gx[:, 1:-1] = -image[:, :-2] + image[:, 2:]
-    gx[:, 0] = -image[:, 0] + image[:, 1]
-    gx[:, -1] = -image[:, -2] + image[:, -1]
-    
     gy = np.zeros(image.shape)
-    gy[1:-1, :] = image[:-2, :] - image[2:, :]
-    gy[0, :] = image[0, :] - image[1, :]
-    gy[-1, :] = image[-2, :] - image[-1, :]
+    if scharr:
+        gx[:, 1:-1] = -10 * image[:, :-2] + 10 * image[:, 2:]
+        gx[:, 0] = -10 * image[:, 0] + 10 * image[:, 1]
+        gx[:, -1] = -10 * image[:, -2] + 10 * image[:, -1]
+    
+        gx[:-1, :-1] += 3 * image[1:, 1:]
+        gx[:-1, 1:]  -= 3 * image[1:, :-1]
+        gx[1:, :-1]  += 3 * image[:-1, 1:]
+        gx[1:, 1:]   -= 3 * image[:-1, :-1]
+    
+        gx[:,-1] += 3 * image[:,-1]
+        gx[-1, :-1] += 3 * image[-1, :-1]
+        gx[:, 0] -= 3 * image[:, 0]
+        gx[-1, 1:] -= 3 * image[-1, 1:]
+        gx[:, -1] += 3 * image[:, -1]
+        gx[0, :-1] += 3 * image[0, :-1]
+        gx[:, 0] -= 3 * image[:, 0]
+        gx[0, 1:] -= 3 * image[0, 1:]
+    
+        gy[1:-1, :] = -10 * image[:-2, :] + 10 * image[2:, :]
+        gy[0, :] = -10 * image[0, :] + 10 * image[1, :]
+        gy[-1, :] = -10 * image[-2, :] + 10 * image[-1, :]
+    
+        gy[:-1, :-1] += 3 * image[1:, 1:]
+        gy[:-1, 1:]  += 3 * image[1:, :-1]
+        gy[1:, :-1]  -= 3 * image[:-1, 1:]
+        gy[1:, 1:]   -= 3 * image[:-1, :-1]
+    
+        gy[:,-1] += 3 * image[:,-1]
+        gy[-1, :-1] += 3 * image[-1, :-1]
+        gy[:, 0] += 3 * image[:, 0]
+        gy[-1, 1:] += 3 * image[-1, 1:]
+        gy[:, -1] -= 3 * image[:, -1]
+        gy[0, :-1] -= 3 * image[0, :-1]
+        gy[:, 0] -= 3 * image[:, 0]
+        gy[0, 1:] -= 3 * image[0, 1:]
+    else:
+        gx[:, 1:-1] = -image[:, :-2] + image[:, 2:]
+        gx[:, 0] = -image[:, 0] + image[:, 1]
+        gx[:, -1] = -image[:, -2] + image[:, -1]
+    
+        gy[1:-1, :] = image[:-2, :] - image[2:, :]
+        gy[0, :] = image[0, :] - image[1, :]
+        gy[-1, :] = image[-2, :] - image[-1, :]
     return intensity_and_orientation(gx, gy)
 
 def scharr_gradients(X, gray = True):
@@ -130,15 +108,15 @@ def subimage_histogram(intensities, orientations, nbins, b_step):
         
 def image_histogram(intensities, orientations, cell_sz, cells, step, nbins, b_step, image_sz):
     histogram = np.zeros(cells ** 2 * nbins)
-    for i in range(0, image_sz, step):
-        for j in range(0, image_sz, step):
-            sub_intensities  = intensities[i:i + cell_sz, j:j + cell_sz]
-            sub_orientations = orientations[i:i + cell_sz, j:j + cell_sz]
-            position = (i / step * cells + j / step) * nbins
+    for i in range(-step, image_sz - cell_sz // 2, step):
+        for j in range(-step, image_sz - cell_sz // 2, step):
+            sub_intensities  = intensities[max(i, 0):i + cell_sz, j:j + cell_sz]
+            sub_orientations = orientations[max(i, 0):i + cell_sz, j:j + cell_sz]
+            position = ((i + step) // step * cells + (j + step) // step) * nbins
             histogram[position:position + nbins] = subimage_histogram(sub_intensities, sub_orientations, nbins, b_step)
     return histogram
 
-def histogram_of_gradients(X, nbins, cell_sz, step, colored = True):
+def histogram_of_gradients(X, nbins, cell_sz, step, colored = True, scharr = False):
     if colored:
         X_gray = rgb2gray(X)
     else:
@@ -146,11 +124,10 @@ def histogram_of_gradients(X, nbins, cell_sz, step, colored = True):
     intensities  = np.zeros(X_gray.shape)
     orientations = np.zeros(X_gray.shape)
     for i, image in enumerate(X_gray):
-        intensities[i], orientations[i] = scharr_gradient(image)
-    # X_gradients = np.apply_along_axis(lambda image: scharr_gradient(image, only_intensity = False), axis = 1, arr = X_gray)
+        intensities[i], orientations[i] = scharr_gradient(image, scharr)
     b_step = 180/nbins
     image_sz = len(X_gray[0]) #images are supposed to be square
-    cells = image_sz // step
+    cells = (image_sz - cell_sz // 2) // step + ((image_sz - cell_sz) % step != 0) + 1
     HOG = np.zeros((len(X), cells ** 2 * nbins))
     for i, (intensity, orientation) in enumerate(zip(intensities, orientations)):
         HOG[i] = image_histogram(intensity, orientation, cell_sz, cells, step, nbins, b_step, image_sz)
@@ -165,7 +142,7 @@ def plot(X, lim=4):
         plt.imshow(X[kk], cmap='gray')
         plt.show()
 
-def shift(X, direction, number):
+def shift(X, direction):
     n, p = X.shape
     X_r = X[:, :1024].reshape(n, 32, 32)
     X_g = X[:, 1024:2048].reshape(n, 32, 32)
@@ -174,21 +151,21 @@ def shift(X, direction, number):
     colors = [X_r, X_g, X_b]
     for kk, col in enumerate(colors):
         if (direction == 'right'):
-            temp = col[:, :, number]
-            shifted_col = np.roll(col, axis=2, shift=number)
-            shifted_col[:, :, number] = temp
+            temp = col[:, :, 0]
+            shifted_col = np.roll(col, axis=2, shift=1)
+            shifted_col[:, :, 0] = temp
         elif (direction == 'left'):
-            temp = col[:, :, -number]
-            shifted_col = np.roll(col, axis=2, shift=-number)
-            shifted_col[:, :, -number] = temp
+            temp = col[:, :, -1]
+            shifted_col = np.roll(col, axis=2, shift=-1)
+            shifted_col[:, :, -1] = temp
         elif (direction == 'up'):
-            temp = col[:, -number, :]
-            shifted_col = np.roll(col, axis=1, shift=-number)
-            shifted_col[:, -number, :] = temp
+            temp = col[:, -1, :]
+            shifted_col = np.roll(col, axis=1, shift=-1)
+            shifted_col[:, -1, :] = temp
         elif (direction == 'down'):
-            temp = col[:, number, :]
-            shifted_col = np.roll(col, axis=1, shift=number)
-            shifted_col[:, number, :] = temp
+            temp = col[:, 0, :]
+            shifted_col = np.roll(col, axis=1, shift=1)
+            shifted_col[:, 0, :] = temp
         else:
             print('Direction \'%s\'' % direction, 'is not supported')
             return None
